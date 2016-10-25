@@ -1,0 +1,450 @@
+
+\documentclass[12pt]{article}
+
+%AMS-TeX packages
+\usepackage{amssymb,amsmath,amsthm}
+%geometry (sets margin) and other useful packages
+\usepackage[margin=1.25in]{geometry}
+\usepackage{graphicx,ctable,booktabs}
+\usepackage{utopia}
+
+\usepackage{fancyhdr} % Required for custom headers
+\usepackage{lastpage} % Required to determine the last page for the footer
+\usepackage{extramarks} % Required for headers and footers
+\usepackage{graphicx} % Required to insert images
+\usepackage{listings} % Required for insertion of code
+\usepackage{courier} % Required for the courier font
+\usepackage{lipsum} % Used for inserting dummy 'Lorem ipsum' text into the template
+\usepackage{verbatim}
+\usepackage{alltt}
+\usepackage{fancyvrb}
+\usepackage{cprotect}
+
+\newcommand{\sep}{-\kern-.6em\raisebox{-.659ex}{*}\ }
+
+\setlength{\parindent}{0em}
+\setlength{\parskip}{1.5ex}
+	
+%
+%Fancy-header package to modify header/page numbering
+%
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+%\addtolength{\headwidth}{\marginparsep} %these change header-rule width
+%\addtolength{\headwidth}{\marginparwidth}
+\lhead{}
+\chead{}
+\rhead{\thepage}
+\lfoot{\small\scshape }
+\cfoot{}
+\rfoot{\footnotesize }
+\renewcommand{\headrulewidth}{.3pt}
+\renewcommand{\footrulewidth}{.3pt}
+\setlength\voffset{-0.25in}
+\setlength\textheight{648pt}
+
+\begin{document}
+\title{Introduction to Separation Logic}
+\author{Ana Nora Evans}
+\date{\today}
+\maketitle
+\thispagestyle{empty}
+
+\section{Motivation}
+
+We would like to be able to reason about memory safety and correctness of programs. For example for the program below,
+\begin{align*}
+&int \; *x = malloc (sizeof(int));\\
+&int \; *y = malloc (sizeof(int));\\
+&*x = 3;\\
+&*y = *x + 1;
+\end{align*}
+we would like to be able to prove that the two allocated memory locations hold values $3$, and $4$ respectively. For this to be true, we need $malloc$ to return a fresh memory address each time. In addition, we would like to be able to say that all the other heap locations are unchanged.
+
+Separation logic, allows us to reason about portions of the heap independently. With some effort, we are able to prove assertions like: 
+\begin{itemize}
+\item if the program terminates then the variable $z$ has value $3$
+\item the program will access only previously allocated memory
+\item the command will change exactly one valid memory location, and leave the rest unchanged
+\item allows us assert that two point do not alias 
+\end{itemize}
+
+Separation logic is an extension of the Hoare logic for reasoning about imperative languages that use a shared mutable data structure. A shared mutable data structure is one that can be updated and accessed from more than one point. The heap is an example of such a structure. 
+
+Recall, from grad PL, in axiomatic semantics or Hoare Logic, we have assertions or Hoare triples:
+\begin{equation*}
+\{A\}c\{B\}
+\end{equation*}
+which mean: if $A$ holds in state $\sigma$ and if $<c,\sigma>\Downarrow\sigma^\prime$ the $B$ holds in $\sigma^\prime$. Given
+\begin{enumerate}
+\item a language for assertions (first order predicate logic on top of IMP expressions)
+\item a programing language specification (the famous IMP)
+\item derivation rules for Hoare triples 
+\end{enumerate}
+one can prove correctness given that she finds the magical preconditions and postconditions.
+
+The state $\sigma : V \to \mathbb{Z}$ is a map from a finite set $V$ of program variables to integers. If one wants to reason about dynamically allocated data structures or concurrency, then this logic must be extended to deal with the heap. 
+
+Previously, one modeled the heap as a symbolic mapping $\mu : Addresses \to \mathbb{Z}$. The content of a memory $\mu$ is given by the expression $sel(\mu,a)$ where $a$ is an address. An update of an address $a$, produces a new memory state $upd(\mu,a,e)$. To reason about the memory expressions, one would use inference rules like McCarthy's axioms:
+\[
+sel(upd(\mu,a_1,v), a_2)= \begin{cases}
+v \mbox{ if } a_1 = a_2\\
+sel(\mu,a_2) \mbox{ if } a_1 \neq a_2
+\end{cases}
+\]
+Separation logic treats the heap as a partial function, defined only on a subset of the address space, and allows us to separate the heap into parts and reason about each part independently.
+
+Our motivating example is the deletion of the head of a list:
+\begin{align*}
+&struct \; node = \{\\
+&\qquad int \; data;\\
+&\qquad struct \; node \; *next;\\
+&\}\\
+&\dots\\
+&struct \; node \; *aux = head \to next;\\
+&free(head);\\
+&head = aux;\\
+\end{align*}
+
+What would one like to prove?
+\begin{itemize}
+\item if the list represents a sequence $a_1,\dots,a_n$, the result of the command is $a_2,\dots,a_n$
+\item no other heap locations are modified by the command
+\end{itemize}
+
+What preconditions do we need?
+\begin{itemize}
+\item the list is not empty
+\end{itemize}
+
+What do we need to define?
+\begin{itemize}
+\item the heap
+\item extend IMP with new commands for heap manipulations
+\item extend the language of assertions to include reasoning about the heap
+\item give derivation rules for the new commands
+\end{itemize}
+
+The sections \ref{sec:heap},\ref{sec:language}, \ref{sec:assertions},\ref{sec:rules},\ref{sec:example} are adapted from Reynold \cite{reynolds}.
+
+\section{Heap} \label{sec:heap}
+
+In axiomatic semantics, the state $\sigma : V \to \mathbb{Z}$ is a map from a finite set $V$ of program variables to integers. If one wants to reason about dynamically allocated data structures or concurrent access to a shared memory, then the program state has to be extended. 
+
+In separation logic, the program state is composed of the variable store (the old $\sigma$) and a \textbf{heap} (or memory) which is just a partial function $h:\mathbb{N} \rightharpoonup Integers$. The domain of the heap is the subset of $\mathbb{N}$ for which the function $h$ is defined.
+
+\section{Programming Language} \label{sec:language}
+
+The programming language contains instructions for allocation, deallocation, access and update of a memory location.
+\begin{align*}
+c ::=& \dots &\\
+&x := cons(e_1, \dots, e_n) & \mbox{allocation}\\
+&x := [e] & \mbox{select}\\
+&[e_1] := e_2 & \mbox{update}\\
+&dispose \; e &  \mbox{deallocation}
+\end{align*}
+The analogue in C commands is 
+\begin{align*}
+&int \; *p = malloc(sizeof(int)); & \mbox{allocation}\\
+&int \; x = *p & \mbox{select}\\
+&*p = 2; & \mbox{update}\\
+&free(p); &  \mbox{deallocation}
+\end{align*}
+In Ocaml,
+\begin{align*}
+&let \; x : int \; ref = ref \; 3 \; in & \mbox{allocation}\\
+&let \; y : int = \; !x \; in & \mbox{select}\\
+&\qquad x := 5 & \mbox{update}\\
+\end{align*}
+In a state $(\sigma,h)$, the \textit{allocation command} $x := cons(e_1, \dots, e_n)$ adds $n$ consecutive heap addresses to the heap's domain and stores the value of expression $e_i$. More precisely, the variable $x$ of the store $\sigma$ is updated with some integer $l$ such that $l+i \notin dom(h)$, for all $0 \leq i \leq n-1$, the expressions $e_i$ are evaluated for the store $\sigma$ to values $v_i$, the domain of the heap $h$ is extended with definitions $h(l+i-1) = v_i$ for all $1 \leq i \leq n$.
+\[
+\frac{<e_i,\sigma>\Downarrow v_i, 1 \leq i \leq n}{<x := cons(e_1, \dots, e_n),(\sigma,h)>\Downarrow (\sigma[x:=l], h[l:=v_1,l+1:=v_2,\dots,l+n-1:=v_n]) }
+\]
+where $\sigma[x:=l]$ is a new state with 
+\[\sigma[x:=l](y)= \begin{cases}
+l, \mbox{if } x=y \\
+\sigma(y), \mbox{if } x \neq y 
+\end{cases} 
+\] and, similarly, the new heap $h[l:=v_1,l+1:=v_2,\dots,l+n-1:=v_n]$ satisfies the following conditions $(l+i)\notin dom(h)$ for all $i$, and 
+\[
+h[l:=v_1,l+1:=v_2,\dots,l+n-1:=v_n] = \begin{cases}
+h(a), \mbox{if } a \in dom(h)\\
+v_i, \mbox{if } a = l+i-1
+\end{cases}
+\]
+The \textit{select command}, $x := [e]$, in state $(\sigma,h)$, evaluates the expression $e$ for the store $\sigma$ to a value $l$, and if $l \in dom(h)$ then updates the store variable $x$ with the value $h(l)$. 
+\[ \frac{<e,\sigma>\Downarrow l\qquad l \in dom(h)} {<x := [e],(\sigma,h)>\Downarrow (\sigma[x:=h(l)],h)}\]
+\[ \frac{<e,\sigma>\Downarrow l\qquad l \notin dom(h)} {<x := [e],(\sigma,h)>\Downarrow abort}\]
+The \textit{update command}, $[e]:=e^\prime$, evaluates the expression $e$ for the store $\sigma$ to a value $l$. If $l \in dom(h)$, then the expression $e^\prime$ is evaluated for the store $\sigma$ to value $v$. Finally, the new heap will have exactly the same domain as $h$, but it will differ at exactly one location $l$ where it will store the value $v$.
+\[
+\frac{<e,\sigma>\Downarrow l \qquad l \in dom(h) \qquad <e^\prime,\sigma>\Downarrow v}{<[e]:=e^\prime,(\sigma,h)>\Downarrow (\sigma,h[l:=v])}
+\]
+\[
+\frac{<e,\sigma>\Downarrow l \qquad l \notin dom(h) }{<[e]:=e^\prime,(\sigma,h)>\Downarrow abort}
+\]
+The \textit{deallocation} command $dispose \; e$ evaluates the expression $e$ for the store $\sigma$ to a value $l$. If $l \in dom(h)$, then the new heap will be a restriction of the heap $h$, with domain $dom(h) \setminus \{l\}$. 
+Note that it is possible to free only one of the locations that have been allocated as a group.
+\[
+\frac{<e,\sigma> \Downarrow l \qquad l\in dom(h)}{<dispose \; e,(\sigma,h)>\Downarrow(s,h|_{dom(h)-\{l\}})}
+\]
+\[
+\frac{<e,\sigma> \Downarrow l \qquad l\notin dom(h)}{<dispose \; e,(\sigma,h)>\Downarrow abort}
+\]
+
+In our new language, the command that deletes the first element of a list is:
+\begin{align*}
+&h^\prime:=[h+1];\\
+&dispose \; h;\\
+&dispose \; h+1; &\\
+&h:=h^\prime;
+\end{align*}
+
+\section{Assertion Language} \label{sec:assertions}
+
+We already defined the heap and we extended the language with commands for manipulating it. Next step is to extend the \textbf{assertion language} to allow us to state facts about our new program state, including the heap.
+\begin{align*}
+A ::=& \dots &\\
+&emp & \mbox{empty heap}\\
+&e \mapsto e^\prime & \mbox{singleton heap}\\
+& A * B & \mbox{separating conjuction}\\
+& A \sep B & \mbox{separating implication}
+\end{align*}
+
+The \textit{empty heap assertion}, $emp$ is true for a state $(\sigma,h)$ iff the domain of the heap is the empty set:
+\[
+(\sigma,h) \vDash emp \mbox{ iff } dom(h)=\emptyset
+\]
+If the expression $e$ with store $\sigma$ evaluates to a value $l$ and the the expression $e^\prime$ with store $\sigma$ to a value $v$, then
+the \textit{singleton heap assertion}, is true iff $h$ is only defined for $l$ and $h(l)=v$.
+\[
+(\sigma,h) \vDash e \mapsto e^\prime \mbox{ iff } dom(h) = <e,\sigma>\Downarrow \mbox{ and } h(<e,\sigma>\Downarrow) = <e^\prime,\sigma>\Downarrow 
+\]
+I will introduce next, two heap operators: the disjoint heaps $\bot$ and union of disjoint heaps $\cdot$.
+Let $h_1$ and $h_2$ be heaps. $h_1 \bot h_2$ is $true$ iff $dom(h_1) \cap dom(h_2) = \emptyset$. The union of disjoint heaps $h_1$ and $h_2$ is the heap $h$ defined by:
+\[
+h(l) = \begin{cases}
+h_1(l), \mbox{ where } l \in dom(h_1)\\
+h_2(l), \mbox{ where } l \in dom(h_2)
+\end{cases}
+\]
+
+The semantics of the \textit{separating conjunction} are:
+\[
+(\sigma,h)\vDash A*B \mbox{ iff } \exists h_1, h_2 \mbox{ such that } h_1 \bot h_2 \mbox{ and } h_1 \cdot h_2 = h \mbox{ and } (\sigma, h_1) \vDash A \mbox{ and } (\sigma, h_2) \vDash B 
+\]
+
+I will define next a few shorthand notations.
+\begin{align*}
+&e \mapsto - \mathop =\limits^{def} \exists x^\prime. e \mapsto x^\prime \mbox{ where } x^\prime \mbox{ is not free in } e \\
+&e \mapsto e_1, e_2, \dots, e_n \mathop =\limits^{def} e \mapsto e_1 * (e+1) \mapsto e_2 * \dots * (e+n-1) \mapsto e_n \\
+& e \hookrightarrow e^\prime \mathop =\limits^{def} e \mapsto e^\prime * true \\
+&e \hookrightarrow e_1, e_2, \dots, e_n \mathop =\limits^{def} e \hookrightarrow e_1 * (e+1) \hookrightarrow e_2 * \dots * (e+n-1) \hookrightarrow e_n  \\
+\end{align*}
+We will look at a few examples of assertions:
+\begin{enumerate}
+\item $(\sigma,h) \vDash x \mapsto 3$. 
+
+$x$ is a store variable whose value $l = \sigma(x)$ is the entire domain of the heap, $dom(h) = \{l\}$, and $h(l)=3$
+\item $(\sigma,h) \vDash x \mapsto 3,4$. 
+
+$x$ is a store variable with value $l = \sigma(x)$. The domain of the heap is $dom(h) = \{l,l+1\}$, and $h(l)=3$, $h(l+1)=4$.
+\item $(\sigma,h) \vDash x \mapsto 3,y$. 
+
+$x$ is a store variable with value $l = \sigma(x)$. $y$ is a store variable with value $v$. The domain of the heap is $dom(h) = \{l,l+1\}$, and $h(l)=3$, $h(l+1)=v$.
+\item $x \mapsto 3,y * y \mapsto 3,x$
+
+There exist disjoint heaps $h_1 \bot h_2$ such that: 
+\begin{align*}
+&(\sigma,h_1) \models x \mapsto 3,y\\
+&(\sigma,h_2) \models y \mapsto 3,x\\
+&h = h_1 \cdot h_2
+\end{align*}
+From the previous case we know $x$ and $y$ are variables in the store $\sigma$ with values $l_x$ and $l_y$ and:
+\begin{align*}
+&dom(h_1) = \{l_x,l_{x+1}\}\\
+&h_1(l_x)=3, h_1(l_x+1) = l_y\\
+&dom(h_2) = \{l_y,l_{y+1}\}\\
+&h_2(l_y)=3, h_2(l_y+1) = l_x\\
+\end{align*} 
+Since $h_1$ and $h_2$ are disjoint, we know that $l_x \neq l_y$.
+
+In conclusion, the assertion states that there are two store variables $x,y$ with values $l_x,l_y$, respectively, the heap contains four locations $l_x,l_{x}+1,l_y,l_{y}+1$ with values $3,l_y,3,l_x$.
+
+\item $x \mapsto 3,y \wedge y \mapsto 3,x$
+
+Let $l_x, l_y$ be the values of store variables $x,y$. The logical and $\wedge$ means that the assertions $x \mapsto 3,y$ and $y \mapsto 3,x$ hold for the same state $(\sigma,h)$. Using the notations from above, we have
+\begin{align*}
+&dom(h)=\{l_x,l_x+1\}=\{l_y,l_y+1\}\\
+&h(l_x) = 3, h(l_x+1)=l_y\\
+&h(l_y)=3, h(l_y+1) = l_x
+\end{align*} 
+We conclude that $x=y$ and the heap contains two locations $l,l+1$ and $h(l)=3, h(l+1) = l$
+
+\item $x \hookrightarrow 3,y \wedge y \hookrightarrow 3,x$ asserts that either of the previous two cases holds and that the heap may contain other locations
+\end{enumerate}
+
+\section{Inference Rules} \label{sec:rules}
+
+The command-specific inference rules for Hoare logic remain sound, and so do structural rules like:
+\begin{itemize}
+\item rule of consequence
+\[
+\frac{\vdash A \Rightarrow A^\prime \qquad \vdash \{A^\prime\}c\{B^\prime\} \qquad \vdash B^\prime \Rightarrow B}{\vdash\{A\}c\{B\}}
+\] 
+\item rule of substitution
+\[
+\frac{ \{A\}c\{B\} }{ (\{A\}c\{B\} )/v_1 \rightarrow e_1, \dots, v_n \rightarrow e_n } 
+\] where $v_1, \dots, v_n$ are variables occurring free in $A$, $c$, or $B$, if $v_i$ is modified by $c$, then $e_i$ is a variable that does not occur free in any other $e_j$. 
+\end{itemize}
+
+The rule of constancy:
+\[
+\frac{\{A\}c\{B\}}{\{A \wedge D \}c\{B \wedge D\}} \mbox{where no variable occurring free in }D\mbox{ is modified by }c
+\]is not sound anymore as shown by the example
+\[
+\frac{\{x\mapsto -\} [x]:=4 \{x\mapsto 4 \} }{\{x\mapsto -\ \wedge y \mapsto 3 \} [x]:=4 \{x\mapsto 4 \wedge y \mapsto 3 \}}
+\] If $x=y$, the postcondition is false, when the precondition is true.
+
+The rule of constancy is replaced by the \textbf{frame rule}
+\[
+\frac{\{A\}c\{B\}}{\{A * D \}c\{B * D\}} \mbox{where no variable occurring free in }D\mbox{ is modified by }c
+\]
+This rule allows us to extend any local reasoning about the command $c$, involving only parts of the heap actually used or modified by $c$, to variables and parts of the heap that are not modified by $c$.
+
+If we replace the logical and with the separating conjunction in the counterexample for the rule of constancy, then aliasing $x=y$ is precluded by the precondition $x\mapsto - * y \mapsto 3$. 
+
+The derivation rules for the new commands are:
+\begin{itemize}
+\item allocation
+\[
+\frac{}{\{emp\} x := cons(\bar{e}) \{ x \mapsto \bar{e}\}}
+\] where $x$ is not free in $e$.
+\item lookup
+\[
+\frac{}{\{x=x^\prime \wedge e \mapsto x^{\prime\prime} \} x := [e] \{ x=x^{\prime\prime} \wedge (e/x\to x^\prime) \mapsto x^{\prime\prime} \} }
+\] where $x$,$x^\prime$, and $x^{\prime\prime}$ are distinct.
+\item lookup (global)
+\[
+\frac{ }{ \{ \exists x^{\prime\prime}.(e \mapsto x^{\prime\prime}) * (r/x^\prime \to x)\}
+x:=[e]
+\{ \exists x^\prime. (e/x\to x^\prime) \mapsto x *(r/x^{\prime\prime} \to x) \}
+ }
+\] where $x$,$x^\prime$, and $x^{\prime\prime}$ are distinct; $x^\prime$, and $x^{\prime\prime}$ are not free in $e$; $x$ is not free in $r$.
+\item mutation
+\[
+\frac{}{\{e\mapsto-\} [e] := e^\prime \{ e \mapsto e^\prime \}}
+\]
+\item deallocation
+\[
+\frac{}{ \{ e \mapsto - \} dispose \; e \{emp\} }
+\]
+\end{itemize}
+O'Hearn called the local inference rules, small rules, because each assumes entire heap is only the command footprint. In \cite{ohearnintro} there is a detailed description derivation of the global rules from local ones. 
+
+\section{Example} \label{sec:example}
+
+Let's look at the delete the list head example:
+\begin{align*}
+&h^\prime:=[h+1];\\
+&dispose \; h;\\
+&dispose \; h+1\\
+&h:=h^\prime;\\
+\end{align*}
+First, we will notice that there is an assumption about the structure of the list. If $h$ contains the address of a list cell, then the address pointed by $h$ stores the data, and the consecutive address points to the next element in the list. We also must start with a non-empty list. If we start with a list representing a sequence $a_1, \dots, a_n$ we would like to end up with a list representing the sequence $a_2,\dots,a_n$. 
+ 
+We will start by defining a $list$ predicate recursively. Let $\alpha$ be a sequence $\alpha_1, \dots, \alpha_n$. Let $(h,t)$ denote the list segment with head $h$ and with last next pointer $t$. 
+By definition, the list segment $(h,t)$ represents the empty sequence if
+\[ list \; \epsilon \; (h,t) = emp \wedge h=t. \] This assertion is true for the state $(\sigma,h)$ with $\sigma(h)=\sigma(t)$ and empty heap $h$.
+
+For a non-empty sequence, denoted by $a \cdot \alpha$, where $a$ is the first element of the sequence and $\alpha$ the rest of the sequence,
+\[list \; (a\cdot\alpha) \; (h,t) = \exists h^\prime.h\mapsto a,h^\prime * list \; \alpha \; (h^\prime,t)\]
+The use of the separating conjunction guarantees that there are no cycles in our list segment. The definition also ensures the desired list structure with consecutive addresses for data and next pointer.
+
+Here is how we use this predicate. The precondition 
+\[ \{list \; (a\cdot\alpha) \; (h,t)\} \]
+assures us we are not starting with an empty list and the list has the expected structure.
+
+By the definition of $list$ predicate, we have
+\[\{\exists h_1.h\mapsto a,h_1 * list \; \alpha \; (h_1,t)\} \]
+
+Since $h\mapsto a, h_1$ is by definition $h\mapsto a * (h+1)\mapsto h_1$, we have
+\[\{\exists h_1.h\mapsto a * (h+1) \mapsto h_1 * list \; \alpha \; (h_1,t)\} \]
+
+Since $h_1$ is not free in $h \mapsto a$, we have
+\[\{h\mapsto a * \exists h_1.(h+1) \mapsto h_1 * list \; \alpha \; (h_1,t)\} \]
+
+We apply the global lookup rule 
+\[
+\frac{ }{ \{ \exists x^{\prime\prime}.(e \mapsto x^{\prime\prime}) * (r/x^\prime \to x)\}
+x:=[e]
+\{ \exists x^\prime. (e/x\to x^\prime) \mapsto x *(r/x^{\prime\prime} \to x) \}
+ }
+\]
+with $x^{\prime\prime} = h_1$, $e=h+1$, $x=h^\prime$, $r=list \; \alpha  \; (h_1,t) = list \; \alpha \; (x^{\prime\prime},t)$
+\begin{align*}
+&\{ \exists h_1.((h+1) \mapsto h_1) * ((list \; \alpha \; (h_1,t))/x^\prime \to h^\prime)\}\\
+&\qquad h^\prime:=[h+1]\\
+&\{ \exists x^\prime. ((h+1)/h^\prime\to x^\prime) \mapsto h^\prime *(list \; \alpha \; (h_1,t)/h_1 \to h^\prime) \}
+\end{align*}
+We apply the substitutions in the postcondition
+\[
+\{ \exists x^\prime. (h+1) \mapsto h^\prime *(list \; \alpha \; (h^\prime,t) \}
+\]
+We can eliminate the existential quantifier since $x^\prime$ is not used in the predicate
+\[
+\{ (h+1) \mapsto h^\prime *(list \; \alpha \; (h^\prime,t) \}
+\]
+We use the frame rule and the above application of the global lookup rule to obtain the postcondition 
+\[
+\{ h\mapsto a * (h+1) \mapsto h^\prime *list \; \alpha \; (h^\prime,t) \}
+\]
+which is
+\[
+\{ h\mapsto a, h^\prime *list \; \alpha \; (h^\prime,t) \}
+\]
+
+An easy application of the deallocation rule with frame rule finishes the example.
+
+\begin{align*}
+&\{list \; (a\cdot\alpha) \; (h,t)\}\\
+&\{\exists h^\prime.h\mapsto a,h^\prime * list \; \alpha \; (h^\prime,t)\}\\
+&h^\prime:=[h+1];\\
+&\{h\mapsto a,h^\prime * list \; \alpha \; (h^\prime,t)\}\\
+&dispose \; h;\\
+&\{h+1\mapsto h^\prime * list \; \alpha \; (h^\prime,t)\}\\
+&dispose \; h+1\\
+&\{list \; \alpha \; (h^\prime,t)\}\\
+&h:=h^\prime;\\
+&\{list \; \alpha \; (h,t)\}\\
+\end{align*}
+
+After all this work we proved the correctness of the following four line program:
+\begin{align*}
+&h^\prime:=[h+1];\\
+&dispose \; h;\\
+&dispose \; h+1; &\\
+&h:=h^\prime;
+\end{align*}
+
+For a proof of an in place list reversal see \cite{reynolds}.
+
+\section{Brief History}
+Separation logic was developed in early 2000's by: John C. Reynolds (CMU) \cite{reynolds}, Peter O'Hearn (UCL), Hongseok Yang (Oxford) \cite{ohearnintro}, Samin Ishtiaq (MSR).
+
+I think the delete head of the list example convinced you it is not easy to write these types of proofs by hand. If we ignore the heap, this is just axiomatic semantics. As we saw from grad PL, symbolic execution and theorem provers made it practical.  
+
+In 2005, Berdine et al. \cite{symbolic1} , defined \textit{symbolic heaps}.
+
+In 2006, Smallfoot \cite{smalfoot1} a tool for checking separation logic specifications uses the previous work. 
+
+Since 2006, number of academic tools have been proposed to search for memory specific bugs. 
+
+SLayer \cite{slayer} is a tool developed by Microsoft designed to \textbf{automatically} prove memory safety of industrial systems code. 
+
+Infer \cite{infer} is a tool developed by Facebook to find resource leaks, null dereference and tainted value reaching sensitive function.
+
+
+\bibliographystyle{unsrt}
+\bibliography{citations}
+
+\end{document} 
