@@ -1,0 +1,101 @@
+
+\documentclass[12pt]{article}
+
+%AMS-TeX packages
+\usepackage{amssymb,amsmath,amsthm}
+%geometry (sets margin) and other useful packages
+\usepackage[margin=1.25in]{geometry}
+\usepackage{graphicx,ctable,booktabs}
+\usepackage{utopia}
+
+\usepackage{fancyhdr} % Required for custom headers
+\usepackage{lastpage} % Required to determine the last page for the footer
+\usepackage{extramarks} % Required for headers and footers
+\usepackage{graphicx} % Required to insert images
+\usepackage{listings} % Required for insertion of code
+\usepackage{courier} % Required for the courier font
+\usepackage{lipsum} % Used for inserting dummy 'Lorem ipsum' text into the template
+\usepackage{verbatim}
+\usepackage{alltt}
+\usepackage{fancyvrb}
+\usepackage{cprotect}
+
+\newcommand{\sep}{-\kern-.6em\raisebox{-.659ex}{*}\ }
+
+\setlength{\parindent}{0em}
+\setlength{\parskip}{1.5ex}
+	
+%
+%Fancy-header package to modify header/page numbering
+%
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+%\addtolength{\headwidth}{\marginparsep} %these change header-rule width
+%\addtolength{\headwidth}{\marginparwidth}
+\lhead{}
+\chead{}
+\rhead{\thepage}
+\lfoot{\small\scshape }
+\cfoot{}
+\rfoot{\footnotesize }
+\renewcommand{\headrulewidth}{.3pt}
+\renewcommand{\footrulewidth}{.3pt}
+\setlength\voffset{-0.25in}
+\setlength\textheight{648pt}
+
+\begin{document}
+\title{Presentation Notes}
+\author{Ana Nora Evans}
+\date{\today}
+\maketitle
+\thispagestyle{empty}
+
+\section{Paper}
+These notes are prepared for research group meeting discussing the ASE 2016 paper, \textit{Inferring annotations for device drivers from verification histories} \cite{paper}. 
+
+\section{Program Verifiers}
+
+\textbf{Model checking} is the exhaustive exploration of the state space of a system, typically to see if an error state is reachable. It produces concrete counterexamples.
+
+A program verifier checks if a program satisfies certain properties.
+
+\textbf{SLAM} does verification by model checking. It creates a boolean model of the program and then checks for satisfiability of the formula.
+
+Input: 
+\begin{itemize}
+\item standard C program 
+\item Specification (written in SLIC) given as a finite state machine.
+\end{itemize}
+Output:
+\begin{itemize}
+\item Verified which means "program does not violate the given specification" (with a proof).
+\item counterexample 
+\end{itemize}
+
+\textbf{The Static Driver Verifier}
+Static Driver Verifier \cite{SDV} is a verification tool included in the Windows Driver Kit (WDK). It uses SLAM. Among other things, SDV provides a number of class-specific components (for example, API rules and an environment model). API rules are expressed in the SLIC language and describe the proper way to use the driver APIs.
+
+Note, SDV is available for academic use.
+
+\textbf{Corral} \cite{Corral} is an SMT-based verifier that replaced SLAM in SDV.
+
+\textbf{Houdini}
+
+\textbf{Annotations} are candidate predicates. 
+
+\textbf{Invariants} are logical formulas over program variables that are always true. For example: $x>0$. 
+
+\section{Key Insight}
+Programs that use the same API probably require similar annotations for verifying contracts of that API.  
+By using information from prior verification runs (i.e invariants already checked) of the tool on potentially different sources, candidate invariants will be generated and checked. Previous work, such as SLAM \citep{•}, used only the given specification and the program to be analyzed.
+
+Key challenges:
+\begin{itemize}
+\item invariants and annotations are formulas over program variables, using local variables that will be out of scope on a different location
+\item keep the size of inferred annotations small. The generated set is minimal w.r.t. subset relation and generates all the invariants from previous runs.
+\end{itemize}
+
+\bibliographystyle{unsrt}
+\bibliography{citations}
+
+\end{document} 
