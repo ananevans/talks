@@ -8,6 +8,8 @@
 \usepackage{graphicx,ctable,booktabs}
 \usepackage{utopia}
 
+\usepackage{minted}
+
 \usepackage{fancyhdr} % Required for custom headers
 \usepackage{lastpage} % Required to determine the last page for the footer
 \usepackage{extramarks} % Required for headers and footers
@@ -19,6 +21,7 @@
 \usepackage{alltt}
 \usepackage{fancyvrb}
 \usepackage{cprotect}
+
 
 \newcommand{\sep}{-\kern-.6em\raisebox{-.659ex}{*}\ }
 
@@ -50,36 +53,183 @@
 \maketitle
 \thispagestyle{empty}
 
-\section{Paper}
-These notes are prepared for research group meeting discussing the ASE 2016 paper, \textit{Inferring annotations for device drivers from verification histories} \cite{paper}. 
+These notes are prepared for the research group meeting discussing the ASE 2016 paper, \textit{Inferring annotations for device drivers from verification histories} \cite{paper}. 
 
-\section{Program Verifiers}
+\section{PL Background}
 
-\textbf{Model checking} is the exhaustive exploration of the state space of a system, typically to see if an error state is reachable. It produces concrete counterexamples.
+\subsection{Axiomatic Semantics}
+The theory one uses to reason about program correctness is ``Axiomatic Semantics". It consists of a language for stating assertions about programs, usually first order predicate logic on involving program variables, and rules for establishing the truth of assertions. 
 
-A program verifier checks if a program satisfies certain properties.
+The notation used is: $[A]c[B]$. $A$ is a logical predicate and is called \textbf{precondition}. $B$ is also a predicate and is called \textbf{postcondition}. $c$ is a command or instruction.
 
-\textbf{SLAM} does verification by model checking. It creates a boolean model of the program and then checks for satisfiability of the formula.
+The triple $[A]c[B]$ is called a Hoare triple. It's meaning is: ``If the the predicate $A$ is true then the command $c$ terminates the predicate $B$ is true".
 
-Input: 
+For example, $[x<y]x:=x+1;[x \leq y]$.
+
+How hard is it to prove program termination?
+
+We may be able to prove termination for some toy programs, and if we work very hard even for some programs with loops, but this is an undecidable problem.
+
+Hence, we downgrade our goals a little bit. We introduce a new notation $\{A\}c\{B\}$, which means that ``If the predicate $A$ is true and the command $c$ terminates then the predicate $B$ is true. If the command $c$ does not terminate the assertion is valid".  
+
+What kind of assertions can we make?
 \begin{itemize}
-\item standard C program 
-\item Specification (written in SLIC) given as a finite state machine.
+\item $x>0$
+\item this program is memory safe
+\item the array accesses are within the array bounds 
+\item this program is deadlock free
+\item this program is race free
+\item this program does not leak memory
 \end{itemize}
-Output:
+
+For more interesting properties the language of assertions would use other logics like separation logic, temporal, linear.
+
+These are all things we can say about a program, but that means nothing if we can't actually prove them. We need a set of rules for establishing the truth of assertions:
 \begin{itemize}
-\item Verified which means "program does not violate the given specification" (with a proof).
-\item counterexample 
+\item usual rules from first order logic like 
+\[
+\frac{A \qquad B}{A \wedge B}
+\]
+\item rule of consequence
+\[
+\frac{A'\Rightarrow A \qquad \{A\}c\{B\} \qquad B \Rightarrow B'} { \{A'\}c\{B'\}}
+\]
+\item one rule for each command
+\[
+\frac{\{A\}c_1\{B\} \qquad \{B\}c_2\{C\}}{\{A\}c_1;c_2\{C\}}
+\]
+\[
+\frac{ \{A \wedge b \}c_1 \{B\} \qquad \{A \wedge \neg b \} c_2 \{B\} }{\{A\}if\;b\;then\;c_1\;else\;c_2\{B\}}
+\]
+\[
+\frac{ A \wedge b \Rightarrow C \qquad \{C\}c\{A\} \qquad A \wedge \neg b \Rightarrow B }{ \{A\}while\;b\;do\;c\{B\}}
+\]
+
+$C$ is the \textbf{loop invariant}.
 \end{itemize}
 
-\textbf{The Static Driver Verifier}
-Static Driver Verifier \cite{SDV} is a verification tool included in the Windows Driver Kit (WDK). It uses SLAM. Among other things, SDV provides a number of class-specific components (for example, API rules and an environment model). API rules are expressed in the SLIC language and describe the proper way to use the driver APIs.
+Here is an example:
+\[
+\{x \leq 0\} while \; x \leq 5 \; do \; x := x + 1 \{ x = 6 \}
+\]
+with invariant $x \leq 6$.
 
-Note, SDV is available for academic use.
+Axiomatic semantics is 
+\begin{itemize}
+\item\textbf{sound}: we can only prove true predicates 
+\item \textbf{complete}: we can prove all the true predicates (only if the underlying logic is complete). 
+\end{itemize}
 
-\textbf{Corral} \cite{Corral} is an SMT-based verifier that replaced SLAM in SDV.
+Where are the difficulties?
+\begin{enumerate}
+\item Application of the rule of consequence 
+\item Proving the implications 
 
-\textbf{Houdini}
+With modern SMT solvers, the two above are possible to solve in most cases. Cook's theorem proves that boolean satisfiability if NP-complete, but, luckily the hard instances are not dense in the input space. 
+
+\item loop invariants 
+\item preconditions and postconditions for functions
+
+Solution for the last two: let's call them \textbf{annotations} and make the programmers write them. 
+\end{enumerate}
+
+This is not impossible. In the world of formal methods and verification, one uses proof assistants like Coq, Isabelle, PVS, to combine code and proofs about code. Notably, Xavier Leroy and his team implemented a verified C compiler \cite{compcert} in Coq. 
+
+\subsection{Static Program Checkers}
+
+In the world of C and Java, pointers, inheritance, legacy code and libraries complicate the analysis. Usually, the tools are neither sound nor complete.That means they will allow buggy programs and will give spurious warnings. Tools like ESC/Java \cite{esc} and Microsoft Static Driver Verifier \cite{SDV} are not really verifiers, in the sense that they prove the analyzed program is correct, but they will find some categories of programming errors.
+
+For example, ESC, can give static warnings about null deferences, array bounds errors, type cast errors, race conditions deadlocks. These are all undecidable problems in general, but the kinds of programs that occur in practice are not the one from the undecidability proofs.
+
+%\begin{minted} {Java}
+%/** A linear search component, intended to demonstrate verification in
+% * JML specifications.  This class has two abstract methods that
+% * describe the search, which need to be filled in to instantiate
+% * it.  The formulation of the search and the verification
+% * is based on Edward Cohen's book
+% * <cite>Programming in the 1990s</cite> (Springer-Verlag, 1990).
+% * @author Gary T. Leavens
+% */
+%public abstract class LinearSearch
+%{
+%    /** The function that describes what is being sought. */
+%    //@ requires j >= 0;
+%    public abstract /*@ pure @*/ boolean f(int j);
+%
+%    /** The last integer in the search space, this describes the
+%     * domain of f, which goes from 0 to the result.
+%     */
+%    //@ ensures 0 <= \result;
+%    //@ ensures (\exists int j; 0 <= j && j <= \result; f(j));
+%    public abstract /*@ pure @*/ int limit();
+%
+%    /** Find a solution to the searching problem. */
+%    /*@ public normal_behavior
+%      @   requires (\exists int i; 0 <= i && i <= limit(); f(i));
+%      @   assignable \nothing;
+%      @   ensures \result == (\min int i; 0 <= i && f(i); i);
+%      @*/
+%    public int find() {
+%        int x = 0;
+%        //@ maintaining 0 <= x && (\forall int i; 0 <= i && i < x; !f(i));
+%        //@ decreasing limit() - x;
+%        while (!f(x)) {
+%            /*@ assert 0 <= x && !f(x)
+%              @    && (\forall int i; 0 <= i && i < x; !f(i));
+%              @*/
+%            //@ hence_by (* arithmetic *);
+%            /*@ assert 0 <= (x+1)-1 && !f((x+1)-1)
+%              @    && (\forall int i; 0 <= i && i < (x+1)-1; !f(i));
+%              @*/
+%            x = x + 1;
+%            /*@ assert 0 <= x-1 && !f((int)(x-1))
+%              @    && (\forall int i; 0 <= i && i < x-1; !f(i));
+%              @*/
+%            //@ hence_by (* arithmetic, constant term rule *);
+%            /*@ assert 0 <= x && (\forall int i; i == x-1; !f(i))
+%              @    && (\forall int i; 0 <= i && i < x-1; !f(i));
+%              @*/
+%            //@ hence_by (* joining the range *);
+%            /*@ assert 0 <= x && 
+%              @        (\forall int i; (0 <= i && i < x-1) || i == x-1; !f(i));
+%              @*/
+%            //@ hence_by (* arithmetic *);
+%            //@ assert 0 <= x && (\forall int i; 0 <= i && i < x; !f(i));
+%        }
+%        /*@ assert 0 <= x && f(x)
+%          @     && (\forall int i; 0 <= i && i < x; !f(i));
+%          @*/
+%        //@ hence_by (* definition of \min *);
+%        //@ assert x == (\min int i; 0 <= i && f(i); i);
+%        return x;
+%    }
+%}
+%\end{minted}
+
+TODO Say something about assume-guarantee style and modular checking
+
+\subsection{Houdini}
+
+
+%
+%\textbf{Model checking} is the exhaustive exploration of the state space of a system, typically to see if an error state is reachable. It produces concrete counterexamples.
+%
+%A program verifier checks if a program satisfies certain properties.
+%
+%\textbf{SLAM} does verification by model checking. It creates a boolean model of the program and then checks for satisfiability of the formula.
+%
+%Input: 
+%\begin{itemize}
+%\item standard C program 
+%\item Specification (written in SLIC) given as a finite state machine.
+%\end{itemize}
+%Output:
+%\begin{itemize}
+%\item Verified which means "program does not violate the given specification" (with a proof).
+%\item counterexample 
+%\end{itemize}
+
+\section{The Paper}
 
 \textbf{Annotations} are candidate predicates. 
 
@@ -87,7 +237,7 @@ Note, SDV is available for academic use.
 
 \section{Key Insight}
 Programs that use the same API probably require similar annotations for verifying contracts of that API.  
-By using information from prior verification runs (i.e invariants already checked) of the tool on potentially different sources, candidate invariants will be generated and checked. Previous work, such as SLAM \citep{•}, used only the given specification and the program to be analyzed.
+By using information from prior verification runs (i.e. invariants already checked) of the tool on potentially different sources, candidate invariants will be generated and checked. Previous work, such as SLAM, used only the given specification and the program to be analyzed.
 
 Key challenges:
 \begin{itemize}
