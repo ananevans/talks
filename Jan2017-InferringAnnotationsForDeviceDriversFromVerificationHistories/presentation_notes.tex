@@ -47,22 +47,22 @@
 \setlength\textheight{648pt}
 
 \begin{document}
-\title{Presentation Notes}
+\title{Inferring Annotations: Presentation Notes}
 \author{Ana Nora Evans}
 \date{\today}
 \maketitle
 \thispagestyle{empty}
 
-These notes are prepared for the research group meeting discussing the ASE 2016 paper, \textit{Inferring annotations for device drivers from verification histories} \cite{paper}. 
+These notes are prepared for the Software Engineering Research Group meeting discussing the ASE 2016 paper, \textit{Inferring annotations for device drivers from verification histories} \cite{paper}. 
 
 \section{PL Background}
 
 \subsection{Axiomatic Semantics}
-The theory one uses to reason about program correctness is ``Axiomatic Semantics". It consists of a language for stating assertions about programs, usually first order predicate logic on involving program variables, and rules for establishing the truth of assertions. 
+The theory commonly used to reason about program correctness is ``Axiomatic Semantics". It consists of a language for stating assertions about programs, usually first order predicate logic involving program variables, and rules for establishing the truth of assertions. 
 
-The notation used is: $[A]c[B]$. $A$ is a logical predicate and is called \textbf{precondition}. $B$ is also a predicate and is called \textbf{postcondition}. $c$ is a command or instruction.
+The notation used is: $[A]c[B]$. $A$ is a logical predicate and it is called \textbf{precondition}. $B$ is also a predicate and it is called \textbf{postcondition}. $c$ is a command or instruction.
 
-The triple $[A]c[B]$ is called a Hoare triple. It's meaning is: ``If the the predicate $A$ is true then the command $c$ terminates the predicate $B$ is true".
+The triple $[A]c[B]$ is called a Hoare triple. Its meaning is: ``If the the predicate $A$ is true, then the command $c$ terminates and the predicate $B$ is true after its execution".
 
 For example, $[x<y]x:=x+1;[x \leq y]$.
 
@@ -70,7 +70,7 @@ How hard is it to prove program termination?
 
 We may be able to prove termination for some toy programs, and if we work very hard even for some programs with loops, but this is an undecidable problem.
 
-Hence, we downgrade our goals a little bit. We introduce a new notation $\{A\}c\{B\}$, which means that ``If the predicate $A$ is true and the command $c$ terminates then the predicate $B$ is true. If the command $c$ does not terminate the assertion is valid".  
+Hence, we downgrade our goals a little bit. We remove the termination proof burden by moving the termination condition in the assumptions. We introduce a new notation $\{A\}c\{B\}$, which means that ``If the predicate $A$ is true and the command $c$ terminates, then the predicate $B$ is true after $c$ terminates. If the command $c$ does not terminate the assertion is valid.".  
 
 What kind of assertions can we make?
 \begin{itemize}
@@ -82,7 +82,7 @@ What kind of assertions can we make?
 \item this program does not leak memory
 \end{itemize}
 
-For more interesting properties the language of assertions would use other logics like separation logic, temporal, linear.
+For more interesting properties the language of assertions would use other logics like separation logic or temporal logics.
 
 These are all things we can say about a program, but that means nothing if we can't actually prove them. We need a set of rules for establishing the truth of assertions:
 \begin{itemize}
@@ -114,7 +114,12 @@ Here is an example:
 \]
 with invariant $x \leq 6$.
 
-Axiomatic semantics is 
+Trick: Prove first 
+\[
+\{x \leq 6\} while \; x \leq 5 \; do \; x := x + 1 \{ x = 6 \}
+\] and finish with consequence rule.
+
+Axiomatic semantics is: 
 \begin{itemize}
 \item\textbf{sound}: we can only prove true predicates 
 \item \textbf{complete}: we can prove all the true predicates (only if the underlying logic is complete). 
@@ -125,7 +130,7 @@ Where are the difficulties?
 \item Application of the rule of consequence 
 \item Proving the implications 
 
-With modern SMT solvers, the two above are possible to solve in most cases. Cook's theorem proves that boolean satisfiability if NP-complete, but, luckily the hard instances are not dense in the input space. 
+With modern SMT solvers, the two above are possible to solve in most cases. Cook's theorem proves that boolean satisfiability if NP-complete, but, luckily, the hard instances are not dense in the input space. 
 
 \item loop invariants 
 \item preconditions and postconditions for functions
@@ -137,113 +142,195 @@ This is not impossible. In the world of formal methods and verification, one use
 
 \subsection{Static Program Checkers}
 
-In the world of C and Java, pointers, inheritance, legacy code and libraries complicate the analysis. Usually, the tools are neither sound nor complete.That means they will allow buggy programs and will give spurious warnings. Tools like ESC/Java \cite{esc} and Microsoft Static Driver Verifier \cite{SDV} are not really verifiers, in the sense that they prove the analyzed program is correct, but they will find some categories of programming errors.
+In the world of C and Java, pointers, inheritance, legacy code and libraries complicate the analysis. Usually, the tools are neither sound nor complete.That means they will allow buggy programs and will give spurious warnings. Tools like ESC/Java \cite{esc} are not really verifiers, in the sense that they prove the analyzed program is correct, but they will find some categories of programming errors. 
 
-For example, ESC, can give static warnings about null deferences, array bounds errors, type cast errors, race conditions deadlocks. These are all undecidable problems in general, but the kinds of programs that occur in practice are not the one from the undecidability proofs.
+For example, ESC, can give static warnings about null deferences, array bounds errors, type cast errors, race conditions, and deadlocks. These are all undecidable problems in general, but the kinds of programs that occur in practice are not the one from the undecidability proofs.
 
-%\begin{minted} {Java}
-%/** A linear search component, intended to demonstrate verification in
-% * JML specifications.  This class has two abstract methods that
-% * describe the search, which need to be filled in to instantiate
-% * it.  The formulation of the search and the verification
-% * is based on Edward Cohen's book
-% * <cite>Programming in the 1990s</cite> (Springer-Verlag, 1990).
-% * @author Gary T. Leavens
-% */
-%public abstract class LinearSearch
-%{
-%    /** The function that describes what is being sought. */
-%    //@ requires j >= 0;
-%    public abstract /*@ pure @*/ boolean f(int j);
-%
-%    /** The last integer in the search space, this describes the
-%     * domain of f, which goes from 0 to the result.
-%     */
-%    //@ ensures 0 <= \result;
-%    //@ ensures (\exists int j; 0 <= j && j <= \result; f(j));
-%    public abstract /*@ pure @*/ int limit();
-%
-%    /** Find a solution to the searching problem. */
-%    /*@ public normal_behavior
-%      @   requires (\exists int i; 0 <= i && i <= limit(); f(i));
-%      @   assignable \nothing;
-%      @   ensures \result == (\min int i; 0 <= i && f(i); i);
-%      @*/
-%    public int find() {
-%        int x = 0;
-%        //@ maintaining 0 <= x && (\forall int i; 0 <= i && i < x; !f(i));
-%        //@ decreasing limit() - x;
-%        while (!f(x)) {
-%            /*@ assert 0 <= x && !f(x)
-%              @    && (\forall int i; 0 <= i && i < x; !f(i));
-%              @*/
-%            //@ hence_by (* arithmetic *);
-%            /*@ assert 0 <= (x+1)-1 && !f((x+1)-1)
-%              @    && (\forall int i; 0 <= i && i < (x+1)-1; !f(i));
-%              @*/
-%            x = x + 1;
-%            /*@ assert 0 <= x-1 && !f((int)(x-1))
-%              @    && (\forall int i; 0 <= i && i < x-1; !f(i));
-%              @*/
-%            //@ hence_by (* arithmetic, constant term rule *);
-%            /*@ assert 0 <= x && (\forall int i; i == x-1; !f(i))
-%              @    && (\forall int i; 0 <= i && i < x-1; !f(i));
-%              @*/
-%            //@ hence_by (* joining the range *);
-%            /*@ assert 0 <= x && 
-%              @        (\forall int i; (0 <= i && i < x-1) || i == x-1; !f(i));
-%              @*/
-%            //@ hence_by (* arithmetic *);
-%            //@ assert 0 <= x && (\forall int i; 0 <= i && i < x; !f(i));
-%        }
-%        /*@ assert 0 <= x && f(x)
-%          @     && (\forall int i; 0 <= i && i < x; !f(i));
-%          @*/
-%        //@ hence_by (* definition of \min *);
-%        //@ assert x == (\min int i; 0 <= i && f(i); i);
-%        return x;
-%    }
-%}
-%\end{minted}
+Here is an example (adapted from \cite{jml-example}) of an annotated Java class implementing linear search. The method $f$ takes a parameter the element it's searched for and returns an index where it is found.
 
-TODO Say something about assume-guarantee style and modular checking
+\begin{minted} {Java}
+public abstract class LinearSearch
+{
+    /** The function that describes what is being sought. */
+    //@ requires j >= 0;
+    public abstract /*@ pure @*/ boolean f(int j);
+
+    /** The last integer in the search space, this describes the
+     * domain of f, which goes from 0 to the result.
+     */
+    //@ ensures 0 <= \result;
+    //@ ensures (\exists int j; 0 <= j && j <= \result; f(j));
+    public abstract /*@ pure @*/ int limit();
+
+    /** Find a solution to the searching problem. */
+    /*@ public normal_behavior
+      @   requires (\exists int i; 0 <= i && i <= limit(); f(i));
+      @   ensures \result == (\min int i; 0 <= i && f(i); i);
+      @*/
+    public int find() {
+        int x = 0;
+        //@ maintaining 0 <= x && 
+        //@ (\forall int i; 0 <= i && i < x; !f(i));
+        while (!f(x)) {
+            /*@ assert 0 <= x && !f(x)
+              @    && (\forall int i; 0 <= i && i < x; !f(i));
+              @*/
+            x = x + 1;
+        }
+        /*@ assert 0 <= x && f(x)
+          @     && (\forall int i; 0 <= i && i < x; !f(i));
+          @*/
+        //@ hence_by (* definition of \min *);
+        //@ assert x == (\min int i; 0 <= i && f(i); i);
+        return x;
+    }
+}
+\end{minted}
+
+$requires$ is the notation for the precondition and $ensures$ for the postcondition. This is the loop invariant:
+\begin{minted} {Java} 
+/*@ assert 0 <= x && !f(x) && 
+(\forall int i; 0 <= i && i < x; !f(i)); @*/
+\end{minted}
+
+This is great, but how many times does it happen to write functions that do not call other functions? What does ESC/Java do then?
+
+ESC/Java performs modular checking. It assumes that the called functions are annotated with preconditions and postconditions and the implementation satisfies them. This is called \textbf{assume-guarantee} reasoning.
+
+There may be some hope one can make every programmer involved in the project to write annotations, but there is not much to do about legacy code and external libraries.  
+
+Why not run ESC/Java on unannotated programs? It produces an enormous number of false alarms.
 
 \subsection{Houdini}
 
+It would be very useful if we could automatically generate invariants. The invariants are necessary for legacy code and they are very hard to write. 
 
-%
-%\textbf{Model checking} is the exhaustive exploration of the state space of a system, typically to see if an error state is reachable. It produces concrete counterexamples.
-%
-%A program verifier checks if a program satisfies certain properties.
-%
-%\textbf{SLAM} does verification by model checking. It creates a boolean model of the program and then checks for satisfiability of the formula.
-%
-%Input: 
+One of the early annotation assistants is Houdini \cite{houdini}. The key insight use of the ESC/Java as an oracle. Houdini generates a set of candidate annotations and inserts them in the input program. Then it runs the ESC/Java and removes the ``bad invariants", the ones for which the checker found counterexamples, until quiescence.
+
+The interesting part is candidate annotation generation. If the initial set is too small, the tool fails to find interesting bugs or remove enough warnings, and if it's too big, it's too slow to be practical. 
+The authors used their expertise and the inspection of a variety of hand-annotated programs to develop the following heuristics:
+\begin{enumerate}
+\item if $f$ is a field of type
+\begin{enumerate}
+\item integral $f \; cmp \; exp$  where $cmp$ is one of $<,\leq,==,\neq,\geq, >$ and $expr$ is an integral field or an interesting constant.
+\item reference $f \neq null$
+\item array $f \neq null$, $notnullelements(f)$, $\forall 0 \leq i < expr \Rightarrow f[i] \neq null$, $f.length\; cmp \; expr$
+\item boolean $f == true$, $f == false$
+\end{enumerate}
+\item if $f$ is a method then preconditions and postconditions are generated similarly as for fields. Candidate preconditions may include expressions involving formal parameters and fields. Candidate postconditions may relate the special variable $result$ to either formal parameters or fields.   
+\end{enumerate}
+
+Note that inconsistent guesses will not cause problems, as ESC/Java will refute the incorrect ones.
+
+How well does this work in practice? 
+
+How many annotation did you write in your last Java implementation?
+
+\subsection{Reality}
+The last questions were a bit sarcastic. The reality is that, in practice, in certain cases it works very well. The SLAM project \cite{slam}, which later became the Static Driver Verifier \cite{SDV} is the reason the ``blue screen of death" does not make so much sense to you as it did to programmers in the late nineties. 
+
+Microsoft programmers realized that the vast majority of the Windows crashes were due to device drivers. The Static Driver Verifier (SDV) \cite{slam-SDV} systematically analyzes the source code of Windows device drivers against a \textit{set of rules} that define what it means for a device driver to properly interact with the Windows operating system kernel. The rules are generated from a manually-tunned set of heuristics \cite{paper}.
+
+Why do you think it works in this case?
 %\begin{itemize}
-%\item standard C program 
-%\item Specification (written in SLIC) given as a finite state machine.
-%\end{itemize}
-%Output:
-%\begin{itemize}
-%\item Verified which means "program does not violate the given specification" (with a proof).
-%\item counterexample 
+%\item one company controls the interface
+%\item Microsoft has the power to make the device drivers manufactures use its tool
 %\end{itemize}
 
-\section{The Paper}
+\section{The Paper: Inferring Annotations For Device Drivers From Verification Histories}
 
-\textbf{Annotations} are candidate predicates. 
+This paper takes the ideas from the Houdini \cite{houdini} paper a step further. Instead of relying on humans to come up with a set of templates it learns the set of templates to be tried by the Houdini algorithm from prior verification runs.
 
-\textbf{Invariants} are logical formulas over program variables that are always true. For example: $x>0$. 
-
-\section{Key Insight}
+\subsection{Key Insight}
 Programs that use the same API probably require similar annotations for verifying contracts of that API.  
-By using information from prior verification runs (i.e. invariants already checked) of the tool on potentially different sources, candidate invariants will be generated and checked. Previous work, such as SLAM, used only the given specification and the program to be analyzed.
+By using information from prior verification runs (i.e. invariants already checked) of the tool on potentially different sources, annotations will be generated and checked. 
 
-Key challenges:
-\begin{itemize}
-\item invariants and annotations are formulas over program variables, using local variables that will be out of scope on a different location
-\item keep the size of inferred annotations small. The generated set is minimal w.r.t. subset relation and generates all the invariants from previous runs.
-\end{itemize}
+This approach needs a large repository of annotated sources. 
+
+\subsection{Key Challenges}
+Invariants and annotations are formulas over program variables, using local variables that will be out of scope on a different location.
+
+The size of inferred annotations must be small. In the current architecture, the annotations are passed to Houdini \cite{houdini} to generate invariants for the program verifier, Corral \cite{Corral}. Houdini's performance is not acceptable on very large inputs, but its is very fast on small and medium ones.
+
+The lower bound on how small the annotation set can be is set by the goal to be able to generate all the invariants from the previous runs.
+
+\subsection{Example}
+
+Recall, an annotation is a candidate formula for an invariant. An invariant is a formula that is always true at a point in the program. 
+
+A postcondition $\phi$ of a function $f$ is denoted by $[\phi]@f$. $[\phi]@f@L$ denotes $\phi$ is an invariant for the loop labeled $L$ in function $f$. The predicate $old$ gives the previous value of the variable.
+
+\begin{minted} {C}
+var depth: int;
+
+procedure init() {
+	depth := 0;
+}
+procedure Acquire() {
+	depth := depth + 1;
+}
+procedure Release() {
+	depth := depth - 1;
+}
+procedure d_exit() {
+	assert depth == 0;
+}
+procedure P_n()
+{ call init(); call dispatchP_n(); }
+
+procedure dispatchP_n() {
+	[call Acquire()]^n;
+L1: while(*)
+	{ call Acquire(); call Release(); }
+	[call Release()]^n; call d_exit();
+}
+\end{minted}
+
+The predicates are:
+\[
+{\psi}_i \equiv depth - old(depth)
+\]
+\[
+\eta \equiv (opld(depth)==0 \Rightarrow ok)
+\]
+
+Possible proof of $P_n$:
+\[
+[depth==0]@init, [\psi_1]@Acquire, [\psi_{-1}]@Release,[\eta]@d\_exit
+\]
+\[
+[\psi_0]@dispatchP_n@L1, [\eta]@dispatchP_n
+\]
+
+Houdini can reconstruct this proof using the annotations: $depth==0,\psi_{-1},\psi_1,\psi_0,\eta$. Notice that the function names are not present anymore. 
+
+The algorithm collects the annotations from all the proofs in the repository. Next it applies an abstraction function to the annotations. Using a minimization algorithm, it creates a minimal set of abstract annotations. 
+
+\subsection{The Abstraction Function}
+
+The set of global variables common to all the programs in the repository is called the \textit{shared vocabulary}. It is assumed that these variables will serve a similar role in all programs. 
+
+The program specific variables are mapped to a generic variable of one of the types LOCAL, GLOBAL, FORMALIN, FORMALOUT.
+
+\subsection{The Minimization Algorithm}
+
+The minimization algorithm uses a cost metric which sets the cost to $\infty$ if the abstract annotation set can not prove the set of programs, and it reflects the running time of the verifier otherwise.
+
+When an abstract annotation does not increase the running time of the verifier or it increases it by a tolerable amount, it is dropped from the set.
+
+If an annotation can not be dropped from the set, the algorithm will try to simplify it, perhaps breaking it into the conjunctive components.
+
+\subsection{Evaluation}
+The training is done on a dedicated test suite containing 304 drivers. The testing is done on 66 real. From the hundreds of rules in SDV, the evaluation is done on 14 rules chosen rules, and 14 random.
+
+\section{Names and Projects to Remember}
+
+\begin{enumerate}
+\item SLAM\cite{slam}: Thomas Ball, Sriram Rajamani
+\item ESC/Java \cite{esc} and Houdini\cite{houdini}: Cormac Flanagan and Rustan Leino 
+\item Microsoft Static Driver Verifier \cite{SDV}, Corral \cite{Corral}: Thomas Ball, Akash Lal.
+\end{enumerate}
+
 
 \bibliographystyle{unsrt}
 \bibliography{citations}
